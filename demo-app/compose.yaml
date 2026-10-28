@@ -1,0 +1,22 @@
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SERVICE_NAME: "demo-app-compose"
+      BACKEND_HINT: "redis:6379"
+      PORT: "8080"
+    ports:
+      - "18081:8080"
+    depends_on:
+      redis:
+        condition: service_healthy

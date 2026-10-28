@@ -1,0 +1,36 @@
+# Deny any Pod that sets `securityContext.privileged: true` on a container, initContainer,
+# or ephemeralContainer unless the Pod runs inside a GKE Sandbox microVM
+# (`spec.runtimeClassName == "microvm"`).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: privileged-only-in-microvm
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: >
+        !(
+          object.spec.containers.exists(c, has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true) ||
+          (has(object.spec.initContainers) && object.spec.initContainers.exists(c, has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true)) ||
+          (has(object.spec.ephemeralContainers) && object.spec.ephemeralContainers.exists(c, has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true))
+        ) || (has(object.spec.runtimeClassName) && object.spec.runtimeClassName == "microvm")
+      message: "Privileged containers are prohibited on the host kernel. Set spec.runtimeClassName='microvm' so privileged capabilities are confined to a disposable GKE Sandbox microVM guest kernel."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: privileged-only-in-microvm-binding
+spec:
+  policyName: privileged-only-in-microvm
+  validationActions:
+    - Deny
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: arc-runners

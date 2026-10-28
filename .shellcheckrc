@@ -1,0 +1,4 @@
+# Follow `source` targets so variables defined in .env.sample are known to shellcheck.
+external-sources=true
+# Resolve `# shellcheck source=` paths relative to the script file, not the working directory.
+source-path=SCRIPTDIR

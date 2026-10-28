@@ -1,0 +1,119 @@
+# Deployed into namespace `arc-runners`, where ValidatingAdmissionPolicy `privileged-only-in-microvm`
+# denies any privileged container unless `spec.runtimeClassName == "microvm"`.
+# Workflow target: `runs-on: arc-dind-microvm`
+#
+# In this baseline, `/var/lib/docker` is an in-guest tmpfs (`emptyDir.medium: Memory`),
+# so `dockerd` starts with `--storage-driver=overlay2` and no wrapper script.
+# `deploy/arc/runner-set-dind-microvm-disk.values.yaml` moves `/var/lib/docker` to a
+# 30 GiB disk-backed sparse `ext4` loopback mount instead.
+
+githubConfigSecret: "arc-github-app"
+
+runnerScaleSetName: "arc-dind-microvm"
+minRunners: 1
+maxRunners: 4
+
+# Keep the listener pod on the non-sandbox system node pool.
+listenerTemplate:
+  spec:
+    nodeSelector:
+      pool-role: "system"
+    containers:
+      - name: listener
+
+template:
+  spec:
+    runtimeClassName: "microvm"
+    nodeSelector:
+      nested-virtualization: "enabled"
+      arc-runner-pool: "microvm"
+    initContainers:
+      - name: init-dind-externals
+        image: "ghcr.io/actions/actions-runner:2.338.1"
+        command: ["cp"]
+        args: ["-r", "/home/runner/externals/.", "/home/runner/tmpDir/"]
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+          - name: dind-externals
+            mountPath: /home/runner/tmpDir
+      - name: dind
+        image: "docker:29.9-dind"
+        args:
+          - dockerd
+          - --host=unix:///var/run/docker.sock
+          - --group=$(DOCKER_GROUP_GID)
+          - --storage-driver=overlay2
+        env:
+          - name: DOCKER_GROUP_GID
+            value: "123"
+          - name: DOCKER_TLS_CERTDIR
+            value: ""
+        securityContext:
+          privileged: true
+        restartPolicy: Always
+        startupProbe:
+          exec:
+            command:
+              - docker
+              - info
+          initialDelaySeconds: 0
+          failureThreshold: 36
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:
+            cpu: "3"
+            memory: "6Gi"
+        volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+          - name: dind-sock
+            mountPath: /var/run
+          - name: dind-externals
+            mountPath: /home/runner/externals
+          - name: dind-storage
+            mountPath: /var/lib/docker
+    containers:
+      - name: runner
+        image: "ghcr.io/actions/actions-runner:2.338.1"
+        command: ["/home/runner/run.sh"]
+        env:
+          - name: DOCKER_HOST
+            value: unix:///var/run/docker.sock
+          - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+            value: "180"
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "3Gi"
+        volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+          - name: dind-sock
+            mountPath: /var/run
+    volumes:
+      - name: dind-sock
+        emptyDir: {}
+      - name: dind-externals
+        emptyDir: {}
+      - name: work
+        emptyDir: {}
+      - name: dind-storage
+        emptyDir:
+          medium: Memory
+          sizeLimit: 4Gi
+
+controllerServiceAccount:
+  namespace: "arc-systems"
+  name: "arc-gha-rs-controller"

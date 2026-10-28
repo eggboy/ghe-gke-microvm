@@ -1,0 +1,31 @@
+# microVM pods can reach the Compute Engine metadata server unless a NetworkPolicy blocks it
+# (gVisor pods cannot). In GKE Dataplane V2 (Cilium) clusters an ipBlock rule matches only
+# external (world) traffic, so the first rule allows in-cluster DNS (kube-system and
+# NodeLocal DNSCache) and the second denies 169.254.169.254/32 and 169.254.169.252/32.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-metadata-egress
+  namespace: arc-runners
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+        - ipBlock:
+            cidr: 169.254.20.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+              - 169.254.169.252/32

@@ -1,0 +1,131 @@
+# Section 4 (optional): disk-backed 30 GiB sparse `ext4` loopback for ARC DinD in GKE Sandbox microVMs.
+# Deployed into namespace `arc-runners` (`runs-on: arc-dind-microvm`).
+#
+# Inside a GKE Sandbox microVM (`runtimeClassName: microvm`), a plain `emptyDir: {}` is a `virtiofs`
+# share from the GKE node boot disk, and `overlayfs` rejects `virtiofs` as an upperdir.
+# The `dind` sidecar therefore creates a 30 GiB sparse file (`/dind-backing/docker.img`) on the
+# disk-backed `emptyDir`, formats it with `mkfs.ext4`, and loopback-mounts it over `/var/lib/docker`
+# before starting `dockerd --storage-driver=overlay2`. Docker storage then uses no guest RAM.
+
+# githubConfigUrl is required by the chart and is passed with --set githubConfigUrl="${GITHUB_CONFIG_URL}".
+githubConfigSecret: "arc-github-app"
+
+runnerScaleSetName: "arc-dind-microvm"
+minRunners: 1
+maxRunners: 4
+
+listenerTemplate:
+  spec:
+    nodeSelector:
+      pool-role: "system"
+    containers:
+      - name: listener
+
+template:
+  spec:
+    runtimeClassName: "microvm"
+    nodeSelector:
+      nested-virtualization: "enabled"
+      arc-runner-pool: "microvm"
+    initContainers:
+      - name: init-dind-externals
+        image: "ghcr.io/actions/actions-runner:2.338.1"
+        command: ["cp"]
+        args: ["-r", "/home/runner/externals/.", "/home/runner/tmpDir/"]
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        volumeMounts:
+          - name: dind-externals
+            mountPath: /home/runner/tmpDir
+      - name: dind
+        image: "docker:29.9-dind"
+        command: ["sh", "-euxc"]
+        args:
+          - |
+            if ! command -v mkfs.ext4 >/dev/null 2>&1; then
+              apk add --no-cache e2fsprogs >/dev/null
+            fi
+            mkdir -p /var/lib/docker
+            if [ "$(df -PT /var/lib/docker | awk 'NR==2 {print $2}')" != "ext4" ]; then
+              rm -f /dind-backing/docker.img
+              truncate -s 30G /dind-backing/docker.img
+              mkfs.ext4 -F -q -m 0 /dind-backing/docker.img
+              mount -o loop,noatime /dind-backing/docker.img /var/lib/docker
+            fi
+            df -Th /var/lib/docker
+            exec dockerd-entrypoint.sh dockerd \
+              --host=unix:///var/run/docker.sock \
+              --group=${DOCKER_GROUP_GID} \
+              --storage-driver=overlay2
+        env:
+          - name: DOCKER_GROUP_GID
+            value: "123"
+          - name: DOCKER_TLS_CERTDIR
+            value: ""
+        securityContext:
+          privileged: true
+        restartPolicy: Always
+        startupProbe:
+          exec:
+            command:
+              - docker
+              - info
+          initialDelaySeconds: 0
+          failureThreshold: 36
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:
+            cpu: "3"
+            memory: "6Gi"
+        volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+          - name: dind-sock
+            mountPath: /var/run
+          - name: dind-externals
+            mountPath: /home/runner/externals
+          - name: dind-backing
+            mountPath: /dind-backing
+    containers:
+      - name: runner
+        image: "ghcr.io/actions/actions-runner:2.338.1"
+        command: ["/home/runner/run.sh"]
+        env:
+          - name: DOCKER_HOST
+            value: unix:///var/run/docker.sock
+          - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+            value: "180"
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2"
+            memory: "3Gi"
+        volumeMounts:
+          - name: work
+            mountPath: /home/runner/_work
+          - name: dind-sock
+            mountPath: /var/run
+    volumes:
+      - name: dind-sock
+        emptyDir: {}
+      - name: dind-externals
+        emptyDir: {}
+      - name: work
+        emptyDir: {}
+      - name: dind-backing
+        emptyDir:
+          sizeLimit: 30Gi
+
+controllerServiceAccount:
+  namespace: "arc-systems"
+  name: "arc-gha-rs-controller"

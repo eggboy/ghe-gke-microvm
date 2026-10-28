@@ -1,0 +1,20 @@
+# Helm values for gha-runner-scale-set-controller (0.15.1)
+# Installed into namespace: arc-systems
+# Scheduled onto the 'system' node pool so controller pods stay off the microVM nodes.
+
+replicaCount: 1
+
+nodeSelector:
+  pool-role: "system"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+flags:
+  logLevel: "info"
+  logFormat: "text"
