@@ -52,7 +52,7 @@ gcloud org-policies describe constraints/compute.disableNestedVirtualization \
   --project="${PROJECT_ID}" --effective --format="value(booleanPolicy.enforced)"
 ```
 
-Script: `scripts/00-preflight.sh`
+Script: [`scripts/00-preflight.sh`](scripts/00-preflight.sh)
 
 ### Step 2: Network, service account, cluster, and node pool
 
@@ -181,7 +181,7 @@ kubectl get nodes -o wide -L pool-role,nested-virtualization,sandbox.gke.io/runt
 kubectl get runtimeclass
 ```
 
-Script: `scripts/10-create-cluster.sh`
+Script: [`scripts/10-create-cluster.sh`](scripts/10-create-cluster.sh)
 
 ### Step 3: Admission policy and metadata NetworkPolicy
 
@@ -232,7 +232,7 @@ kubectl apply -f deploy/policy/deny-metadata-egress.yaml
 > [!WARNING]
 > In Cilium-backed Dataplane V2 clusters, an `ipBlock` egress rule such as `cidr: 0.0.0.0/0` with `except: [169.254.169.254/32, 169.254.169.252/32]` matches only external (`world`) traffic and blocks egress to in-cluster pods, including `kube-dns`. Keep the port 53 rule to `kube-system` and `169.254.20.10/32` from [`deploy/policy/deny-metadata-egress.yaml`](deploy/policy/deny-metadata-egress.yaml), or runner pods cannot resolve `*.actions.githubusercontent.com`.
 
-Script: `scripts/20-apply-policy.sh`
+Script: [`scripts/20-apply-policy.sh`](scripts/20-apply-policy.sh)
 
 ### Step 4: GitHub credentials and ARC install
 
@@ -255,7 +255,7 @@ Script: `scripts/20-apply-policy.sh`
     --dry-run=client -o yaml | kubectl apply -f -
   ```
 
-Script: `scripts/30-github-app-secret.sh`
+Script: [`scripts/30-github-app-secret.sh`](scripts/30-github-app-secret.sh)
 
 #### 4b. Install the ARC controller and the `arc-dind-microvm` scale set
 
@@ -280,7 +280,7 @@ helm upgrade --install "${ARC_RUNNER_RELEASE}" \
   --wait
 ```
 
-Script: `scripts/31-install-arc.sh`
+Script: [`scripts/31-install-arc.sh`](scripts/31-install-arc.sh)
 
 #### Runner configuration in [`deploy/arc/runner-set-dind-microvm.values.yaml`](deploy/arc/runner-set-dind-microvm.values.yaml)
 
@@ -317,7 +317,7 @@ A `runc` pod prints the same kernel as the node. A `microvm` pod prints a differ
 > [!NOTE]
 > A different kernel proves the VM boundary. It does not block network egress, so the `deny-metadata-egress` NetworkPolicy from Step 3 is still required to keep runner jobs away from the Compute Engine metadata server at `169.254.169.254`.
 
-Script: `scripts/40-verify-arc.sh`
+Script: [`scripts/40-verify-arc.sh`](scripts/40-verify-arc.sh)
 
 ### Step 5: Run the verification workflow on `arc-dind-microvm`
 
