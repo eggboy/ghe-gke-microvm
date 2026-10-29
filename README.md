@@ -299,6 +299,24 @@ gh api "/repos/${GITHUB_ORG}/${GITHUB_REPO}/actions/runners" \
   --jq '.runners[] | "\(.id)\t\(.name)\tstatus=\(.status)\tbusy=\(.busy)"'
 ```
 
+#### 4d. Verify microVM isolation
+
+Compare the node kernel with the kernel inside the privileged `dind` container:
+
+```bash
+RUNNER_POD="$(kubectl get pods -n "${ARC_RUNNER_NAMESPACE}" -o jsonpath='{.items[0].metadata.name}')"
+NODE_NAME="$(kubectl get pod -n "${ARC_RUNNER_NAMESPACE}" "${RUNNER_POD}" -o jsonpath='{.spec.nodeName}')"
+
+kubectl get node "${NODE_NAME}" -o jsonpath='Node kernel:  {.status.nodeInfo.kernelVersion}{"\n"}'
+kubectl exec -n "${ARC_RUNNER_NAMESPACE}" "${RUNNER_POD}" -c dind -- sh -c \
+  'echo "Guest kernel: $(uname -r)"; echo "Hypervisor:   $(cat /sys/class/dmi/id/product_name)"'
+```
+
+A `runc` pod prints the same kernel as the node. A `microvm` pod prints a different kernel and `Hypervisor: cloud-hypervisor`: `dockerd` and every `docker build` run against that guest kernel, and the node kernel is not reachable from inside the pod.
+
+> [!NOTE]
+> A different kernel proves the VM boundary. It does not block network egress, so the `deny-metadata-egress` NetworkPolicy from Step 3 is still required to keep runner jobs away from the Compute Engine metadata server at `169.254.169.254`.
+
 Script: `scripts/40-verify-arc.sh`
 
 ### Step 5: Run the verification workflow on `arc-dind-microvm`
